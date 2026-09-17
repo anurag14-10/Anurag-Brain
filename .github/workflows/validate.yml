@@ -76,7 +76,9 @@ jobs:
       # `reports/` is what the script itself excludes from its own scan.
       - name: Quality report
         if: always()
-        run: python3 scripts/quality_report.py . --out reports/quality.md
+        run: |
+          mkdir -p reports
+          python3 scripts/quality_report.py . --out reports/quality.md
 
       # ---------------------------------------------------------------------
       # Drift gates. Each one checks an ARTIFACT rather than trusting that the
