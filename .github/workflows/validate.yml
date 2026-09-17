@@ -1,0 +1,117 @@
+name: Validate wiki
+
+# Several people and processes write to this repo, often without running
+# anything locally first. This is the check that always runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      # v6 of both actions runs on Node 24. v4/v5 target Node 20, which is
+      # deprecated -- the runner forces them onto 24 and warns on every run.
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: pip install --quiet pyyaml
+
+      # Regenerating comes BEFORE validating, deliberately.
+      #
+      # It used to come last, guarded by `if: github.event_name == 'push'`.
+      # Because that condition carries an implicit success(), a single bad
+      # reference anywhere in the wiki skipped this step -- so the navigation
+      # layer silently stopped regenerating while the only visible symptom was
+      # a red build about something unrelated. That went unnoticed across three
+      # runs and left rollups and backlinks stale for everyone.
+      #
+      # Derived pages do not depend on the wiki being valid: build_backlinks
+      # skips a slug it cannot resolve. There is no reason to hold navigation
+      # hostage to an unrelated error, so it runs first and validation then
+      # checks the regenerated result.
+      #
+      # [skip ci] stops the bot's own commit triggering this workflow again.
+      - name: Refresh derived pages
+        if: github.event_name == 'push'
+        run: |
+          python3 scripts/build_rollups.py .
+          python3 scripts/build_backlinks.py .
+          python3 scripts/build_index.py .
+          python3 scripts/build_activity_log.py .
+          if [ -n "$(git status --porcelain -- '*.md')" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A -- '*.md'
+            git commit -m "brain: refresh derived pages [skip ci]"
+            git push
+          else
+            echo "derived pages already current"
+          fi
+
+      # Errors fail the build: a dangling reference or a file claiming a
+      # schema version ahead of CONVENTIONS.md is broken, not debatable.
+      # Warnings do not fail it -- a blank field is an honest state, and a
+      # build that goes red for incompleteness trains people to ignore it.
+      - name: Structure, references and schema
+        if: always()
+        run: python3 scripts/validate_wiki.py . --stats
+
+      # Advisory only. Similar names are often genuinely different bodies, so
+      # this reports and never blocks.
+      - name: Possible duplicates
+        if: always()
+        run: python3 scripts/find_duplicates.py .
+
+      # Advisory: the open human-judgment queues. Read-only by contract, so it
+      # can run anywhere. Write it somewhere outside the entity folders --
+      # `reports/` is what the script itself excludes from its own scan.
+      - name: Quality report
+        if: always()
+        run: python3 scripts/quality_report.py . --out reports/quality.md
+
+      # ---------------------------------------------------------------------
+      # Drift gates. Each one checks an ARTIFACT rather than trusting that the
+      # step which produces it ran -- the lesson from a regeneration step that
+      # silently stopped for three runs while the build stayed green for
+      # unrelated reasons. `--check` reports and exits non-zero; it writes
+      # nothing.
+      #
+      # Add one per generated artifact this brain carries. Two examples:
+      #
+      #   - name: Activity digest drift
+      #     if: always()
+      #     run: python3 scripts/build_activity_log.py . --check
+      #
+      # And, if this brain generates its SCHEMA.yml vocabulary from MASTERS.md:
+      #
+      #   - name: MASTERS/SCHEMA vocabulary drift
+      #     if: always()
+      #     run: python3 scripts/sync_schema_vocab.py . --check
+      #
+      # ---------------------------------------------------------------------
+      # Schema version drift, and the one gate that needs editing on every bump.
+      #
+      # validate_wiki.py already reports a stale stamp, as a warning -- and
+      # warnings deliberately do not fail the build. That is right at a small
+      # count and wrong once it reaches most of the wiki, at which point the
+      # warning fires on almost everything and therefore says nothing. This
+      # gate is what stops the tail growing back, because opportunistic
+      # migration alone does not converge.
+      #
+      # It must name the CURRENT hop's migrator. Pointed at an older one it
+      # passes forever while meaning nothing: files sitting at the intermediate
+      # version satisfy the old check and are still behind. Migrators are the
+      # brain's own, so the filename below is a placeholder.
+      #
+      #   - name: Schema version drift
+      #     if: always()
+      #     run: python3 scripts/migrate_v<n>_to_v<n+1>.py . --check

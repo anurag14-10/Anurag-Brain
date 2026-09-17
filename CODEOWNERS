@@ -1,0 +1,15 @@
+# Who must review what, in this wiki.
+#
+# Deliberately narrow. Requiring a human on every capture would defeat the
+# point of a tool designed to log without friction, so routine entity changes
+# are gated by the validation workflow rather than by a person.
+#
+# Only the files that define the shape of everything else need an owner: a bad
+# schema or vocabulary change is expensive to unpick, and cheap to catch here.
+
+CONVENTIONS.md   @anurag14-10
+MASTERS.md       @anurag14-10
+
+# Note that `staging/` is intentionally absent. Sensed candidates are reviewed
+# by whoever owns the affected entity, in conversation with the skill, not by a
+# file-pattern rule -- see references/staging.md in the skill.

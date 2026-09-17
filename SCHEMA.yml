@@ -1,0 +1,135 @@
+# SCHEMA.yml — Anurag-Brain: AI Diffusion Pathway Brain
+#
+# Machine-readable entity model for the AI Diffusion Pathway Framework.
+# Custom entities: pathways, units, toolkits.
+
+schema_version: 1
+
+entities:
+  pathway:
+    folder: pathways
+    description: >
+      A named AI deployment pathway (e.g., MahaVISTAAR, Bhili, Voice AI).
+      Captures deployment identity, population served, stage reached,
+      effort, cost anchor, downstream adoptions, and 4x4 coverage grid.
+    orphan_exempt: true
+    fields:
+      name:                 { type: str, required: true }
+      type:                 { type: str, required: true }
+      schema_version:       { type: int, required: true }
+      sector:               { type: str, required: true, vocab: "6" }
+      geography:            { type: str, required: true }
+      population_served:    { type: str, required: true }
+      stage_reached:        { type: str, required: true, vocab: "3" }
+      contributing_org:     { type: str, required: true }
+      key_dates:            { type: str }
+      summary:              { type: str, required: true }
+      scale_impact:         { type: str }
+      cost_anchor:          { type: str }
+      build_effort:         { type: str }
+      downstream_adoptions: { type: list }
+      external_refs:        { type: list }
+      superseded_by:        { type: str }
+      superseded_on:        { type: str }
+      supersession_note:    { type: str }
+      last_reviewed:        { type: str }
+      review_interval:      { type: int }
+
+  unit:
+    folder: units
+    description: >
+      A micro-innovation unit extracted from a pathway deployment.
+      Tagged reusable knowledge across Dimension, Sub-category, Stage,
+      and Unit Type with condition tags (applies_when / fails_when) and before/after.
+    fields:
+      name:                 { type: str, required: true }
+      type:                 { type: str, required: true }
+      schema_version:       { type: int, required: true }
+      pathway:              { type: str, required: true, ref: pathways }
+      dimension:            { type: str, required: true, vocab: "1" }
+      sub_category:         { type: str, required: true, vocab: "2" }
+      stage:                { type: str, required: true, vocab: "3" }
+      unit_type:            { type: str, required: true, vocab: "4" }
+      applies_when:         { type: str, required: true }
+      fails_when:           { type: str, required: true }
+      before:               { type: str }
+      after:                { type: str }
+      also_relevant_at:     { type: list, list_vocab: "3" }
+      toolkits:             { type: list, list_ref: toolkits }
+      external_refs:        { type: list }
+      superseded_by:        { type: str }
+      superseded_on:        { type: str }
+      supersession_note:    { type: str }
+      last_reviewed:        { type: str }
+      review_interval:      { type: int }
+
+  toolkit:
+    folder: toolkits
+    description: >
+      A reusable artefact, template, governance framework, testing protocol,
+      prompt pattern, vendor criteria, or process playbook created or adapted
+      during a deployment.
+    orphan_exempt: true
+    fields:
+      name:                 { type: str, required: true }
+      type:                 { type: str, required: true }
+      schema_version:       { type: int, required: true }
+      pathway:              { type: str, ref: pathways }
+      toolkit_type:         { type: str, required: true, vocab: "5" }
+      purpose:              { type: str, required: true }
+      conditions_for_reuse: { type: str, required: true }
+      external_refs:        { type: list }
+      superseded_by:        { type: str }
+      superseded_on:        { type: str }
+      supersession_note:    { type: str }
+      last_reviewed:        { type: str }
+      review_interval:      { type: int }
+
+role_masters: {}
+
+# ---------------------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------------------
+rules:
+  # -- Retiring a page ------------------------------------------------------
+  - id: supersession-without-successor
+    when: { field: superseded_on, present: true }
+    require: superseded_by
+    message: "marked superseded but nothing says what replaced it"
+
+  - id: supersession-without-reason
+    when: { field: superseded_by, present: true }
+    require: supersession_note
+    message: "superseded, but no note says why — the reasoning is the thing worth keeping"
+
+  - id: invalid-superseded-by
+    pattern: { field: superseded_by, matches: "[a-z0-9-]+/[a-z0-9-]+" }
+    message: "`superseded_by` must read <folder>/<slug>, or nothing can resolve it"
+
+  - id: self-supersession
+    not_self: superseded_by
+    message: "`superseded_by` points at this page itself"
+
+  # -- Keeping a page true --------------------------------------------------
+  - id: review-interval-never-reviewed
+    when: { field: review_interval, present: true }
+    require: last_reviewed
+    message: "a review interval is set but nothing records when it was last reviewed"
+
+  - id: unreadable-review-date
+    pattern: { field: last_reviewed, matches: "[0-9]{4}-[0-9]{2}-[0-9]{2}" }
+    message: "`last_reviewed` is not a YYYY-MM-DD date"
+
+  - id: review-overdue
+    stale_after: { date: last_reviewed, interval_months: review_interval }
+
+  # -- Unit specifics -------------------------------------------------------
+  - id: unit-requires-applies-when
+    applies_to: units
+    require: applies_when
+    message: "units must specify `applies_when` condition tag"
+
+  - id: unit-requires-fails-when
+    applies_to: units
+    require: fails_when
+    message: "units must specify `fails_when` condition tag"
